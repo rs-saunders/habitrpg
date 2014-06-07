@@ -3,6 +3,7 @@ var Schema = mongoose.Schema;
 var shared = require('habitrpg-shared');
 var _ = require('lodash');
 var async = require('async');
+var logging = require('../logging');
 
 var GroupSchema = new Schema({
   _id: {type: String, 'default': shared.uuid},
@@ -86,12 +87,11 @@ GroupSchema.methods.toJSON = function(){
   return doc;
 }
 
-GroupSchema.methods.sendChat = function(message, user){
-  var group = this;
+var chatDefaults = function(message,user){
   var message = {
     id: shared.uuid(),
     text: message,
-    timestamp: +(new Date),
+    timestamp: +new Date,
     likes: {}
   };
   if (user) {
@@ -104,9 +104,12 @@ GroupSchema.methods.sendChat = function(message, user){
   } else {
     message.uuid = 'system';
   }
+}
+GroupSchema.methods.sendChat = function(message, user){
+  var group = this;
   group.chat.unshift(message);
   group.chat.splice(200);
-
+  var message = chatDefaults(message,user);
   // Kick off chat notifications in the background.
   var lastSeenUpdate = {$set:{}, $inc:{_v:1}};
   lastSeenUpdate['$set']['newMessages.'+group._id] = {name:group.name,value:true};
@@ -169,9 +172,9 @@ GroupSchema.methods.finishQuest = function(quest, cb) {
         break;
     }
   })
-  var members = _.keys(group.quest.members);
+  var q = group._id === 'habitrpg' ? {} : {_id:{$in:_.keys(group.quest.members)}};
   group.quest = {};group.markModified('quest');
-  mongoose.models.User.update({_id:{$in:members}}, updates, {multi:true}, cb);
+  mongoose.model('User').update(q, updates, {multi:true}, cb);
 }
 
 // FIXME this is a temporary measure, we need to remove quests from users when they traverse parties
@@ -213,6 +216,48 @@ GroupSchema.statics.collectQuest = function(user, progress, cb) {
   })
 }
 
+// initialize tavernBoss as "not active". We check every 100 crons if there is an active tavern boss. If so,
+// we keep him up as a global variable so we don't have to load him on every cron. Every 100 crons, we'll refresh him
+// to set a boss: `db.groups.update({_id:'habitrpg'},{$set:{quest:{key:'dilatory',active:true,progress:{hp:1000}}}})`
+var tavernBoss = null;
+var _refreshTavernBoss = function(){
+  mongoose.model('Group').findById('habitrpg',function(err,tavern){
+    if (err) return logging.error(err);
+    tavernBoss = tavern.quest;
+  });
+};
+var refreshTavernBoss = _.after(100,_refreshTavernBoss);
+GroupSchema.statics.tavernBoss = function(user,progress) {
+  refreshTavernBoss();
+  if (tavernBoss) {
+    tavernBoss.progress.hp -= progress.up;
+    tavernBoss.progress.breaker += progress.down;
+    // TODO stats for scene damage (progress.down)
+    if (tavernBoss.progress.hp <= 0) {
+      async.waterfall([
+        function(cb){
+          mongoose.model('Group').findById('habitrpg',cb);
+        }, function(group,cb){
+          group.sendChat('`Congratulations Habiticans, you have slain ' + group.quest.boss.name('en') + '! Everyone has received their rewards.`');
+          group.finishQuest(group.quest,null);
+          group.save(cb);
+        }
+      ],function(err,result){
+        tavernBoss = null;
+        if (err) return logging.error(err);
+      });
+    } else {
+      mongoose.model('Group').update(
+        {_id:'habitrpg'},
+        {$inc:{
+          'quest.progress.hp':-progress.up,
+          'quest.progress.breaker':progress.down
+        }}
+      ).exec();
+    }
+  }
+}
+
 GroupSchema.statics.bossQuest = function(user, progress, cb) {
   this.findOne({type: 'party', members: {'$in': [user._id]}},function(err, group){
     if (!isOnQuest(user,progress,group)) return cb(null);
@@ -246,3 +291,5 @@ GroupSchema.statics.bossQuest = function(user, progress, cb) {
 
 module.exports.schema = GroupSchema;
 module.exports.model = mongoose.model("Group", GroupSchema);
+
+_refreshTavernBoss();
