@@ -6,25 +6,6 @@ module.exports = function(grunt) {
   grunt.initConfig({
     pkg: grunt.file.readJSON('package.json'),
 
-    git_changelog: {
-        minimal: {
-            options: {
-                repo_url: 'https://github.com/habitrpg/habitrpg',
-                appName : 'HabitRPG',
-                branch_name: 'develop'
-            }
-        },
-        extended: {
-            options: {
-                file: 'EXTENDEDCHANGELOG.md',
-                repo_url: 'https://github.com/habitrpg/habitrpg',
-                appName : 'HabitRPG',
-                branch_name: 'develop',
-                grep_commits: '^perf|^style|^fix|^feat|^docs|^refactor|^chore|BREAKING'
-            }
-        }
-    },
-
     karma: {
       unit: {
         configFile: 'karma.conf.js'
@@ -37,7 +18,23 @@ module.exports = function(grunt) {
     },
 
     clean: {
-      build: ['build']
+      build: ['website/build']
+    },
+
+    cssmin: {
+      dist: {
+        options: {
+          report: 'gzip'
+        },
+        files:{
+          "common/dist/sprites/habitrpg-shared.css": [
+            "common/dist/sprites/spritesmith*.css",
+            "common/css/backer.css",
+            "common/css/Mounts.css",
+            "common/css/index.css"
+          ]
+        }
+      }
     },
 
     stylus: {
@@ -45,23 +42,35 @@ module.exports = function(grunt) {
         options: {
           compress: false, // AFTER
           'include css': true,
-          paths: ['public']
+          paths: ['website/public']
         },
         files: {
-          'build/app.css': ['public/css/index.styl'],
-          'build/static.css': ['public/css/static.styl']
+          'website/build/app.css': ['website/public/css/index.styl'],
+          'website/build/static.css': ['website/public/css/static.styl']
         }
+      }
+    },
+
+    browserify: {
+      dist: {
+        src: ["common/index.js"],
+        dest: "common/dist/scripts/habitrpg-shared.js"
+      },
+      options: {
+        transform: ['coffeeify']
+        //debug: true Huge data uri source map (400kb!)
       }
     },
 
     copy: {
       build: {
         files: [
-          {expand: true, cwd: 'public/', src: 'favicon.ico', dest: 'build/'},
-          {expand: true, cwd: 'public/', src: 'bower_components/habitrpg-shared/dist/spritesmith.png', dest: 'build/'},
-          {expand: true, cwd: 'public/', src: 'bower_components/habitrpg-shared/img/sprites/backer-only/*.gif', dest: 'build/'},
-          {expand: true, cwd: 'public/', src: 'bower_components/habitrpg-shared/img/sprites/npc_ian.gif', dest: 'build/'},
-          {expand: true, cwd: 'public/', src: 'bower_components/bootstrap/dist/fonts/*', dest: 'build/'}
+          {expand: true, cwd: 'website/public/', src: 'favicon.ico', dest: 'website/build/'},
+          {expand: true, cwd: '', src: 'common/dist/sprites/spritesmith*.png', dest: 'website/build/'},
+          {expand: true, cwd: '', src: 'common/img/sprites/backer-only/*.gif', dest: 'website/build/'},
+          {expand: true, cwd: '', src: 'common/img/sprites/npc_ian.gif', dest: 'website/build/'},
+          {expand: true, cwd: '', src: 'common/img/sprites/quest_burnout.gif', dest: 'website/build/'},
+          {expand: true, cwd: 'website/public/', src: 'bower_components/bootstrap/dist/fonts/*', dest: 'website/build/'}
         ]
       }
     },
@@ -73,59 +82,44 @@ module.exports = function(grunt) {
           fileNameFormat: '${name}-${hash}.${ext}'
         },
         src: [
-          'build/*.js', 'build/*.css', 'build/favicon.ico',
-          'build/bower_components/habitrpg-shared/dist/*.png',
-          'build/bower_components/habitrpg-shared/img/sprites/backer-only/*.gif',
-          'build/bower_components/habitrpg-shared/img/sprites/npc_ian.gif',
-          'build/bower_components/bootstrap/dist/fonts/*'
+          'website/build/*.js',
+          'website/build/*.css',
+          'website/build/favicon.ico',
+          'website/build/common/dist/sprites/*.png',
+          'website/build/common/img/sprites/backer-only/*.gif',
+          'website/build/common/img/sprites/npc_ian.gif',
+          'website/build/common/img/sprites/quest_burnout.gif',
+          'website/build/bower_components/bootstrap/dist/fonts/*'
         ],
-        dest: 'build/*.css'
-      }
-    },
-
-    nodemon: { 
-      dev: {
-        script: '<%= pkg.main %>'
-      }
-    },
-
-    watch: {
-      dev: {
-        files: ['public/**/*.styl'], // 'public/**/*.js' Not needed because not in production
-        tasks:  [ 'build:dev' ],
-        options: {
-          nospawn: true
-        }
-      }
-    },
-
-    concurrent: {
-      dev: ['nodemon', 'watch'],
-      options: {
-        logConcurrentOutput: true
+        dest: 'website/build/*.css'
       }
     }
-
   });
 
   //Load build files from public/manifest.json
   grunt.registerTask('loadManifestFiles', 'Load all build files from public/manifest.json', function(){
-    var files = grunt.file.readJSON('./public/manifest.json');
+    var files = grunt.file.readJSON('./website/public/manifest.json');
     var uglify = {};
     var cssmin = {};
 
     _.each(files, function(val, key){
 
-      var js = uglify['build/' + key + '.js'] = [];
+      var js = uglify['website/build/' + key + '.js'] = [];
 
-      _.each(files[key]['js'], function(val){
-        js.push('public/' + val);
+      _.each(files[key].js, function(val){
+        var path = "./";
+        if( val.indexOf('common/') == -1)
+          path = './website/public/';
+        js.push(path + val);
       });
 
-      var css = cssmin['build/' + key + '.css'] = [];
+      var css = cssmin['website/build/' + key + '.css'] = [];
 
-      _.each(files[key]['css'], function(val){
-        var path = (val == 'app.css' || val == 'static.css') ? 'build/' : 'public/';
+      _.each(files[key].css, function(val){
+        var path = "./";
+        if( val.indexOf('common/') == -1) {
+          path = (val == 'app.css' || val == 'static.css') ?  './website/build/' : './website/public/';
+        }
         css.push(path + val)
       });
 
@@ -136,26 +130,32 @@ module.exports = function(grunt) {
 
     grunt.config.set('cssmin.build.files', cssmin);
     // Rewrite urls to relative path
-    grunt.config.set('cssmin.build.options', {'target': 'public/css/whatever-css.css'});
+    grunt.config.set('cssmin.build.options', {'target': 'website/public/css/whatever-css.css'});
   });
 
   // Register tasks.
-  grunt.registerTask('build:prod', ['loadManifestFiles', 'clean:build', 'uglify', 'stylus', 'cssmin', 'copy:build', 'hashres']);
-  grunt.registerTask('build:dev', ['stylus']);
+  grunt.registerTask('build:prod', ['loadManifestFiles', 'clean:build', 'browserify', 'uglify', 'stylus', 'cssmin', 'copy:build', 'hashres']);
+  grunt.registerTask('build:dev', ['browserify', 'cssmin', 'stylus']);
+  grunt.registerTask('build:test', ['test:prepare:translations', 'build:dev']);
 
-  grunt.registerTask('run:dev', [ 'build:dev', 'concurrent' ]);
+  grunt.registerTask('test:prepare:translations', function() {
+    require('coffee-script');
+    var i18n  = require('./website/src/libs/i18n'),
+        fs    = require('fs');
+    fs.writeFileSync('test/spec/mocks/translations.js',
+      "if(!window.env) window.env = {};\n" +
+      "window.env.translations = " + JSON.stringify(i18n.translations['en']) + ';');
+  });
 
   // Load tasks
+  grunt.loadNpmTasks('grunt-browserify');
   grunt.loadNpmTasks('grunt-contrib-uglify');
   grunt.loadNpmTasks('grunt-contrib-clean');
   grunt.loadNpmTasks('grunt-contrib-stylus');
   grunt.loadNpmTasks('grunt-contrib-cssmin');
   grunt.loadNpmTasks('grunt-contrib-copy');
-  grunt.loadNpmTasks('grunt-nodemon');
-  grunt.loadNpmTasks('grunt-concurrent');
   grunt.loadNpmTasks('grunt-contrib-watch');
   grunt.loadNpmTasks('grunt-hashres');
   grunt.loadNpmTasks('grunt-karma');
-  grunt.loadNpmTasks('git-changelog');
 
 };

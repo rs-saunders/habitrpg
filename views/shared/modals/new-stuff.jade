@@ -1,8 +1,0 @@
-script(type='text/ng-template', id='modals/newStuff.html')
-  .modal-header
-    h4=env.t('newStuff')
-  .modal-body.new-stuff-modal.modal-fixed-height
-    include ../new-stuff
-  .modal-footer
-    button.btn.btn-default(ng-click='$close()')=env.t('cool') 
-    button.btn.btn-warning(ng-click='dismissAlert(); $close()')=env.t('dismissAlert')
